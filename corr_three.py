@@ -1,20 +1,29 @@
-import multiprocessing
-from itertools import repeat
+import os
 import pandas as pd
 import numpy as np
-import streamlit as st
+import pyarrow as pa
+import pyarrow.parquet as pq
 
-# Dummy get_correlation function for demonstration
-def get_correlation(df_temp, dependent_variable_name, independent_variable_name, run_rolling_corr, rolling_windows):
-    return {
-        "Time Series": {f"{year} Rolling Corr": pd.DataFrame() for year in rolling_windows},
-        "Stats": {f"{year} Rolling Corr": pd.DataFrame() for year in rolling_windows}
-    }
-
-@st.cache_data
 def run_rolling_corr_calc(df_universe, df_dependent, dependent_variable_name,
-                          run_rolling_corr=True, rolling_windows=[1, 3, 5, 7]):
+                          run_rolling_corr=True, rolling_windows=[1,3,5,7],
+                          cache_dir='cache'):
     
+    # Create a cache directory if it doesn't exist
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # Create a unique cache key based on input parameters
+    cache_key = f"{dependent_variable_name}_{run_rolling_corr}_{'-'.join(map(str, rolling_windows))}"
+    timeseries_cache_path = os.path.join(cache_dir, f"{cache_key}_timeseries.parquet")
+    stats_cache_path = os.path.join(cache_dir, f"{cache_key}_stats.parquet")
+    
+    # Check if cached results exist
+    if os.path.exists(timeseries_cache_path) and os.path.exists(stats_cache_path):
+        # Load cached results
+        df_timeseries = pd.read_parquet(timeseries_cache_path)
+        df_stats = pd.read_parquet(stats_cache_path)
+        return [df_timeseries, df_stats]
+    
+    # If not cached, run the original function
     start_ind = 0
     end_ind = 2500
 
@@ -24,7 +33,7 @@ def run_rolling_corr_calc(df_universe, df_dependent, dependent_variable_name,
         df_timeseries_dict[f"{year}"] = []
         df_stats_dict[f"{year}"] = []
 
-    for i in range(0, round(df_universe.shape[1] / 2500) + 1):
+    for i in range(0, round(df_universe.shape[1]/2500)+1):
         if start_ind < df_universe.shape[1]:
             df_independent = df_universe.iloc[:, start_ind:end_ind]
 
@@ -35,38 +44,26 @@ def run_rolling_corr_calc(df_universe, df_dependent, dependent_variable_name,
             else:
                 df_temp = pd.merge(df_dependent, df_independent, left_index=True, right_index=True)
 
-            multi_process_on = True  # Change this to True to enable multiprocessing
+        results = []
+        for independent_variable_name in independent_variable_names:
+            result = get_correlation(df_temp, dependent_variable_name, independent_variable_name, run_rolling_corr, rolling_windows)
+            results.append(result)
 
-            if multi_process_on:
-                multiprocess_params = zip(repeat(df_temp), repeat(dependent_variable_name), independent_variable_names,
-                                          repeat(run_rolling_corr), repeat(rolling_windows))
-                num_cpu = multiprocessing.cpu_count() - 2
-                with multiprocessing.Pool(num_cpu) as pool:
-                    results = pool.starmap(get_correlation, multiprocess_params)
-            else:
-                results = []
-                for independent_variable_name in independent_variable_names:
-                    result = get_correlation(df_temp, dependent_variable_name, independent_variable_name, run_rolling_corr, rolling_windows)
-                    results.append(result)
+        for year in rolling_windows:
+            dict_timeseries = [item["Time Series"] for item in results]
+            list_timeseries = [item[f"{year} Rolling Corr"] for item in dict_timeseries]
+            df_results_timeseries = pd.concat(list_timeseries, axis=1)
+            df_timeseries_dict[f"{year}"].append(df_results_timeseries)
 
-            for year in rolling_windows:
-                dict_timeseries = [item["Time Series"] for item in results]
-                list_timeseries = [item[f"{year} Rolling Corr"] for item in dict_timeseries]
-                df_results_timeseries = pd.concat(list_timeseries, axis=1)
-                df_timeseries_dict[f"{year}"].append(df_results_timeseries)
+            dict_stats = [item["Stats"] for item in results]
+            list_stats = [item[f"{year} Rolling Corr"] for item in dict_stats]
+            df_stats = pd.concat(list_stats)
+            df_stats_dict[f"{year}"].append(df_stats)
 
-                dict_stats = [item["Stats"] for item in results]
-                list_stats = [item[f"{year} Rolling Corr"] for item in dict_stats]
-                df_stats = pd.concat(list_stats)
-                df_stats_dict[f"{year}"].append(df_stats)
-
-            start_ind += 2500
-            end_ind += 2500
-        else:
+        start_ind += 2500
+        end_ind += 2500
+        if start_ind >= df_universe.shape[1]:
             break
-
-    final_timeseries_dict = {}
-    final_stats_dict = {}
 
     for year in rolling_windows:
         df_timeseries = pd.concat(df_timeseries_dict[f"{year}"], axis=1)
@@ -74,13 +71,15 @@ def run_rolling_corr_calc(df_universe, df_dependent, dependent_variable_name,
         df_timeseries = df_timeseries.dropna(how='all', axis=1).dropna(how='all', axis=0)
         df_timeseries.index.name = "Variable Name"
         df_timeseries = df_timeseries.reset_index()
-        final_timeseries_dict[f"{year}"] = df_timeseries
 
         df_stats = pd.concat(df_stats_dict[f"{year}"])
         df_stats = df_stats.replace([-np.inf, np.inf], np.nan)
         df_stats = df_stats.dropna(how='all', axis=0)
         df_stats.index.name = "Variable Name"
         df_stats = df_stats.reset_index()
-        final_stats_dict[f"{year}"] = df_stats
 
-    return [final_timeseries_dict, final_stats_dict]
+    # Save results to parquet files
+    df_timeseries.to_parquet(timeseries_cache_path, index=False)
+    df_stats.to_parquet(stats_cache_path, index=False)
+
+    return [df_timeseries, df_stats]
