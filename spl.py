@@ -1,3 +1,14 @@
+dcc.Checklist(
+    id='position-filter',
+    options=[
+        {'label': 'Underweight', 'value': 'underweight'},
+        {'label': 'Overweight', 'value': 'overweight'},
+        {'label': 'Benchmark', 'value': 'benchmark'}
+    ],
+    value=['underweight', 'overweight', 'benchmark'],  # All selected by default
+    inline=True
+)
+
 @dashapp.callback(
     [
         Output("scatter-plot", "figure"),
@@ -6,157 +17,98 @@
         Output("summary_table", "data"),
         Output("table_title", "children"),
     ],
-    [State("scatter-plot", "figure"), State("download-data", "href")],
-    Input("port_ddn", "value"),
-    Input("scatter-plot", "relayoutData"),
-    Input("y_value_ddn", "value")
+    [
+        State("scatter-plot", "figure"),
+        State("download-data", "href"),
+        Input("port_ddn", "value"),
+        Input("scatter-plot", "relayoutData"),
+        Input("y_value_ddn", "value"),
+        Input("position-filter", "value")  # New input
+    ]
 )
-def update_scatter_plot(figure_obj, data, key, relay_data, column):
-    trigger_id = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
-    date = data_loader.big_df2_dict["ALL"]["run_date"].values[0]
-    auto_in = False
-    krd = "KRD" if key != "ALL" else None
 
-    if relay_data is not None:
-        auto_in = "autosize" in relay_data.keys()
-    if "scatter-plot" in trigger_id and not auto_in:
-        big_df2 = data_loader.big_df2_dict[key]
-        correct_range = False
-        try:
-            correct_range = (
-                "xaxis.range[0]" in relay_data.keys()
-                or "yaxis.range[0]" in relay_data.keys()
-            )
-        except:
-            pass
 
-        if not correct_range:
-            table_data, table_columns = utils.create_summary_table(big_df2, key)
-            if key == "ALL":
-                table_data = None
+def update_scatter_plot(figure_obj, data, key, relay_data, column, position_filter):
+    # ... (previous code remains the same)
 
-            return [figure_obj, data, "data.csv", table_data, krd]
-        else:
-            new_df = big_df2.copy()
-            if "xaxis.range[0]" in relay_data.keys():
-                new_df = new_df.loc[
-                    new_df["Years to Maturity"] > relay_data["xaxis.range[0]"]
-                ]
-                new_df = new_df.loc[
-                    new_df["Years to Maturity"] < relay_data["xaxis.range[1]"]
-                ]
-            if "yaxis.range[0]" in relay_data.keys():
-                new_df = new_df.loc[new_df[column] > relay_data["yaxis.range[0]"]]
-                new_df = new_df.loc[new_df[column] < relay_data["yaxis.range[1]"]]
-            adc = new_df["Active Duration Contribution_Individual"].sum()
-            adc = round(adc, 4)
+    # Filter the DataFrame based on selected positions
+    big_df2_filtered = big_df2[big_df2['Position'].isin(position_filter)]
 
-            table_data, table_columns = utils.create_summary_table(new_df, key)
-            if key == "ALL":
-                table_data = None
-
-            return [figure_obj, data, "data.csv", table_data, krd]
-    else:
-        fig = go.Figure()
-        big_df2 = data_loader.big_df2_dict[key]
-        big_df2 = big_df2.sort_values("Original series")
-        table_data, table_columns = utils.create_summary_table(big_df2, key)
-        annotation_text = ""
-        if key == "ALL":
-            grouped_df = big_df2.groupby("CUSIP")
-            result = grouped_df.apply(
-                lambda x: np.sum(
-                    x["Active Duration Contribution"]
-                    * x["PortfolioNAVComputedNotional"]
-                )
-                / np.sum(x["PortfolioNAVComputedNotional"])
-            )
-            result_abs = result.abs().reset_index(name="AvgActiveDur")
-            big_df2 = big_df2.merge(result_abs, on="CUSIP", how="left")
-
-            big_df2["AvgActiveDur"] = big_df2["AvgActiveDur"].round(3)
-            size = "AvgActiveDur"
-            annotation_text = f'Total ADC : {str(round(big_df2["Active Duration Contribution"].sum(), 4))}'
-        else:
-                size = "ADC Abs"
-                annotation_text = f'Total ADC : {str(round(big_df2["Active Duration Contribution_Individual"].sum(), 4))}'
-
-        df_rename_values = {
-            2.0: "2Y",
-            3.0: "3Y",
-            5.0: "5Y",
-            7.0: "7Y",
-            10.0: "10Y",
-            20.0: "20Y",
-            30.0: "30Y",
-        }
-
-        symbols_dict = {
-            "2Y": "circle",
-            "3Y": "square",
-            "5Y": "diamond",
-            "7Y": "cross",
-            "10Y": "x",
-            "20Y": "star",
-            "30Y": "bowtie",
-        }
-
-        big_df2["Original series"] = big_df2["Original series"].apply(
-            lambda x: df_rename_values[x] if x in df_rename_values.keys() else x
-        )
-
-        def normalize_and_scale(df, column, min_value, max_value):
-            df['normalized'] = (df[column] - df[column].min()) / (df[column].max() - df[column].min())
-            df['sizes'] = df['normalized'] * (max_value - min_value) + min_value
-            return df
-        
-        big_df2 = normalize_and_scale(big_df2, size, 5, 18)
-
-        bench = []
-
-        for benchmark in data_loader.ddn_options_list:
-            if benchmark == "All":
-                continue
-            bench.append(benchmark.split("/")[1])
-        print(bench)
-
-        if bench is not None:
-            big_df2.loc[np.isin(big_df2["indportname"], bench), "Position"] = (
-                "benchmark"
-            )
-
-        positions = ["underweight", "overweight", "benchmark"]
-        colors = {
+    # Use the filtered DataFrame for plotting
+    graph_trace = px.scatter(
+        big_df2_filtered,  # Use filtered DataFrame
+        x="Years to Maturity",
+        y=column,
+        size="size",
+        hover_name="Description",
+        hover_data=["CUSIP", "Position"],
+        color="Position",
+        color_discrete_map={
             "underweight": "mediumvioletred",
             "overweight": "mediumseagreen",
             "benchmark": "gray",
-        }
+        },
+        title=key,
+        symbol="Original series",
+        symbol_map=symbols_dict,
+    )
 
-        for position in positions:
-            position_data = big_df2[big_df2["Position"] == position]
-            fig.add_trace(
-                go.Scatter(
-                    x=position_data["Years to Maturity"],
-                    y=position_data[column],
-                    mode="markers",
-                    marker=dict(
-                        size=position_data["sizes"],
-                        symbol=position_data["Original series"].map(symbols_dict),
-                        color=colors[position]
-                    ),
-                    name=position,
-                    legendgroup=position,
-                    showlegend=True,
-                )
+    # ... (rest of the function remains the same)
+
+    # Update the CSV string with filtered data
+    csv_string = big_df2_filtered.to_csv(index=False, encoding="utf-8")
+    csv_string = "data:text/csv;charset=utf-8," + urllib.parse.quote(csv_string)
+
+    # ... (rest of the function remains the same)
+
+
+
+
+    # How about this ....
+
+
+
+    def update_scatter_plot(figure_obj, data, key, relay_data, column):
+        trigger_id = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+        date = data_loader.big_df2_dict["ALL"]["run_date"].values[0]
+        auto_in = False
+        krd = "KRD" if key != "ALL" else None
+
+        # Keep your existing logic for handling relay_data, etc.
+        
+        # ... (keep your existing data loading and preprocessing logic)
+
+        big_df2 = data_loader.big_df2_dict[key]
+        # ... (keep any other data preparation steps)
+
+        # Replace your px.scatter() call and subsequent figure modifications with this new code:
+        traces = []
+        for position in ['underweight', 'overweight', 'benchmark']:
+            df_position = big_df2[big_df2['Position'] == position]
+            trace = go.Scatter(
+                x=df_position["Years to Maturity"],
+                y=df_position[column],
+                mode='markers',
+                marker=dict(
+                    size=df_position["sizes"],
+                    symbol=df_position["Original series"].map(symbols_dict),
+                    color={"underweight": "mediumvioletred", "overweight": "mediumseagreen", "benchmark": "gray"}[position],
+                ),
+                name=position.capitalize(),
+                hovertemplate=(
+                    "<b>%{hovertext}</b><br>"
+                    "CUSIP: %{customdata[0]}<br>"
+                    "Position: %{customdata[1]}<br>"
+                    "Years to Maturity: %{x:.2f}<br>"
+                    f"{column}: %{{y:.2f}}"
+                ),
+                hovertext=df_position["Description"],
+                customdata=df_position[["CUSIP", "Position"]],
             )
+            traces.append(trace)
 
-        if column == "Fed Hold %":
-            fig.update_yaxes(range=[-5, 75])
+        fig = go.Figure(data=traces)
 
-        if column == "CMT RVS":
-            y_title = "Basis Points From Fair Value"
-        else:
-            y_title = str(column)
         fig.update_layout(
             xaxis=dict(title=dict(text="Years to Maturity", font=dict(size=20))),
             yaxis=dict(title=dict(text=y_title, font=dict(size=20))),
@@ -168,23 +120,18 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
                 orientation="h",
                 x=1,
                 y=1,
-                itemclick="toggleothers",  # Single click to toggle visibility
-                itemdoubleclick="toggle"  # Double click to isolate
             ),
             hoverlabel_font_color="white",
         )
+
         fig.update_xaxes(range=[0, 30.05])
+        if column == "Fed Hold %":
+            fig.update_yaxes(range=[-5, 75])
+
+        # Keep your existing code for creating csv_string, table_data, etc.
         csv_string = big_df2.to_csv(index=False, encoding="utf-8")
         csv_string = "data:text/csv;charset=utf-8," + urllib.parse.quote(csv_string)
-        if key == "ALL":
-            table_data = None
-        utils.compress_legend(
-            fig,
-            "overweight",
-            "underweight",
-            "mediumseagreen",
-            "mediumvioletred",
-            symbols_dict,
-        )
+        
+        # ... (keep any other necessary logic)
 
         return [fig, csv_string, "data.csv", table_data, krd]
