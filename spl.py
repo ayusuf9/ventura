@@ -1,14 +1,3 @@
-dcc.Checklist(
-    id='position-filter',
-    options=[
-        {'label': 'Underweight', 'value': 'underweight'},
-        {'label': 'Overweight', 'value': 'overweight'},
-        {'label': 'Benchmark', 'value': 'benchmark'}
-    ],
-    value=['underweight', 'overweight', 'benchmark'],  # All selected by default
-    inline=True
-)
-
 @dashapp.callback(
     [
         Output("scatter-plot", "figure"),
@@ -17,29 +6,19 @@ dcc.Checklist(
         Output("summary_table", "data"),
         Output("table_title", "children"),
     ],
-    [
-        State("scatter-plot", "figure"),
-        State("download-data", "href"),
-        Input("port_ddn", "value"),
-        Input("scatter-plot", "relayoutData"),
-        Input("y_value_ddn", "value"),
-        Input("position-filter", "value")  # New input
-    ]
+    [State("scatter-plot", "figure"), State("download-data", "href")],
+    Input("port_ddn", "value"),
+    Input("scatter-plot", "relayoutData"),
+    Input("y_value_ddn", "value")
 )
+def update_scatter_plot(figure_obj, data, key, relay_data, column):
+    # ... (keep the existing code up to the point where the figure is created)
 
-
-def update_scatter_plot(figure_obj, data, key, relay_data, column, position_filter):
-    # ... (previous code remains the same)
-
-    # Filter the DataFrame based on selected positions
-    big_df2_filtered = big_df2[big_df2['Position'].isin(position_filter)]
-
-    # Use the filtered DataFrame for plotting
     graph_trace = px.scatter(
-        big_df2_filtered,  # Use filtered DataFrame
+        big_df2,
         x="Years to Maturity",
         y=column,
-        size="size",
+        size="sizes",
         hover_name="Description",
         hover_data=["CUSIP", "Position"],
         color="Position",
@@ -53,85 +32,63 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column, position_filt
         symbol_map=symbols_dict,
     )
 
-    # ... (rest of the function remains the same)
+    fig = go.Figure()
+    fig.add_traces(list(graph_trace.data))
 
-    # Update the CSV string with filtered data
-    csv_string = big_df2_filtered.to_csv(index=False, encoding="utf-8")
-    csv_string = "data:text/csv;charset=utf-8," + urllib.parse.quote(csv_string)
+    # ... (keep other figure updates)
 
-    # ... (rest of the function remains the same)
+    # Replace utils.compress_legend with this new function
+    def simplify_legend(fig):
+        # Get unique positions and original series
+        positions = big_df2['Position'].unique()
+        original_series = big_df2['Original series'].unique()
 
-
-
-
-    # How about this ....
-
-
-
-    def update_scatter_plot(figure_obj, data, key, relay_data, column):
-        trigger_id = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
-        date = data_loader.big_df2_dict["ALL"]["run_date"].values[0]
-        auto_in = False
-        krd = "KRD" if key != "ALL" else None
-
-        # Keep your existing logic for handling relay_data, etc.
-        
-        # ... (keep your existing data loading and preprocessing logic)
-
-        big_df2 = data_loader.big_df2_dict[key]
-        # ... (keep any other data preparation steps)
-
-        # Replace your px.scatter() call and subsequent figure modifications with this new code:
-        traces = []
-        for position in ['underweight', 'overweight', 'benchmark']:
-            df_position = big_df2[big_df2['Position'] == position]
-            trace = go.Scatter(
-                x=df_position["Years to Maturity"],
-                y=df_position[column],
+        # Create a trace for each position (overweight, underweight, benchmark)
+        for position in positions:
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
                 mode='markers',
-                marker=dict(
-                    size=df_position["sizes"],
-                    symbol=df_position["Original series"].map(symbols_dict),
-                    color={"underweight": "mediumvioletred", "overweight": "mediumseagreen", "benchmark": "gray"}[position],
-                ),
-                name=position.capitalize(),
-                hovertemplate=(
-                    "<b>%{hovertext}</b><br>"
-                    "CUSIP: %{customdata[0]}<br>"
-                    "Position: %{customdata[1]}<br>"
-                    "Years to Maturity: %{x:.2f}<br>"
-                    f"{column}: %{{y:.2f}}"
-                ),
-                hovertext=df_position["Description"],
-                customdata=df_position[["CUSIP", "Position"]],
-            )
-            traces.append(trace)
+                marker=dict(size=10, color=graph_trace.data[0].marker.color),
+                name=position,
+                legendgroup=position,
+                showlegend=True
+            ))
 
-        fig = go.Figure(data=traces)
+        # Create a trace for each original series (2Y, 3Y, 5Y, etc.)
+        for series in original_series:
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode='markers',
+                marker=dict(size=10, symbol=symbols_dict[series], color='gray'),
+                name=series,
+                legendgroup=series,
+                showlegend=True
+            ))
 
-        fig.update_layout(
-            xaxis=dict(title=dict(text="Years to Maturity", font=dict(size=20))),
-            yaxis=dict(title=dict(text=y_title, font=dict(size=20))),
-            height=500,
-            title="Run Date: %s" % date,
-            legend=dict(
-                itemsizing="constant",
-                font=dict(size=16),
-                orientation="h",
-                x=1,
-                y=1,
-            ),
-            hoverlabel_font_color="white",
-        )
+        # Hide individual traces from legend but keep them in the plot
+        for trace in fig.data[:-len(positions)-len(original_series)]:
+            trace.showlegend = False
 
-        fig.update_xaxes(range=[0, 30.05])
-        if column == "Fed Hold %":
-            fig.update_yaxes(range=[-5, 75])
+        return fig
 
-        # Keep your existing code for creating csv_string, table_data, etc.
-        csv_string = big_df2.to_csv(index=False, encoding="utf-8")
-        csv_string = "data:text/csv;charset=utf-8," + urllib.parse.quote(csv_string)
-        
-        # ... (keep any other necessary logic)
+    # Apply the new legend simplification
+    fig = simplify_legend(fig)
 
-        return [fig, csv_string, "data.csv", table_data, krd]
+    fig.update_layout(
+        legend=dict(
+            itemsizing="constant",
+            font=dict(size=16),
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            itemclick="toggleothers",
+            itemdoubleclick="toggle"
+        ),
+        hoverlabel_font_color="white",
+    )
+
+    # ... (keep the rest of the function as is)
+
+    return [fig, csv_string, "data.csv", table_data, krd]
