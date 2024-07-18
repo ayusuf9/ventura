@@ -1,12 +1,7 @@
-fig = go.Figure()
-
-positions = ["overweight", "underweight", "benchmark"]
-colors = {"overweight": "mediumseagreen", "underweight": "mediumvioletred", "benchmark": "gray"}
-
 # Create traces for overweight and underweight
 for position in ["overweight", "underweight"]:
     df_filtered = big_df2[big_df2["Position"] == position]
-    
+
     fig.add_trace(go.Scatter(
         x=df_filtered["Years to Maturity"],
         y=df_filtered[column],
@@ -34,6 +29,7 @@ for position in ["overweight", "underweight"]:
 for maturity in symbols_dict.keys():
     df_filtered = big_df2[big_df2["Original series"] == maturity]
     
+    # Add invisible trace for colored data points
     fig.add_trace(go.Scatter(
         x=df_filtered["Years to Maturity"],
         y=df_filtered[column],
@@ -54,8 +50,30 @@ for maturity in symbols_dict.keys():
             "Maturity: %{customdata[2]}"
         ),
         hovertext=df_filtered["Description"],
-        customdata=df_filtered[["CUSIP", "Position", "Original series"]]
+        customdata=df_filtered[["CUSIP", "Position", "Original series"]],
+        showlegend=False
     ))
+
+    # Add visible trace for black legend icon
+    fig.add_trace(go.Scatter(
+        x=[None], 
+        y=[None],
+        mode="markers", 
+        name=maturity,
+        legendgroup=maturity,
+        marker=dict(
+            size=10,
+            symbol=symbols_dict[maturity],
+            color='black'
+        ),
+        showlegend=True,
+        hoverinfo='none'
+    ))
+
+if column == "CMT RVS":
+    y_title = "Basis Points From Fair Value"
+else:
+    y_title = str(column)
 
 # Update layout
 fig.update_layout(
@@ -66,10 +84,14 @@ fig.update_layout(
     legend=dict(
         itemsizing="constant",
         font=dict(size=18),
-        orientation="h",
-        y=-0.2,
-        x=0,
-        groupclick="toggleitem"
+        orientation="v",
+        yanchor="top",
+        xanchor="left",
+        x=1.02,
+        y=1,
+        groupclick="toggleitem",
+        itemclick="toggleothers",
+        itemdoubleclick="toggle" 
     ),
     hoverlabel_font_color="white"
 )
