@@ -1,131 +1,64 @@
-import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output, State
-import plotly.graph_objects as go
+def update_scatter_plot(figure_obj, data, key, relay_data, column):
+    # ... (keep the beginning of the function as is)
 
-def create_compressed_figure(big_df2, column, symbols_dict):
-    color_map = {
-        'overweight': 'mediumseagreen',
-        'underweight': 'mediumvioletred',
-        'benchmark': 'gray'
-    }
+    def normalize_and_scale(df, column, min_value, max_value):
+        if column in df.columns:
+            df['normalized'] = (df[column] - df[column].min()) / (df[column].max() - df[column].min())
+            df['sizes'] = df['normalized'] * (max_value - min_value) + min_value
+        else:
+            df['sizes'] = (max_value + min_value) / 2  # Default size if column doesn't exist
+        return df
 
     fig = go.Figure()
 
-    # Create traces for data points
-    for position in color_map.keys():
-        for maturity, symbol in symbols_dict.items():
-            df_filtered = big_df2[(big_df2['Position'] == position) & (big_df2['Original series'] == maturity)]
-            
-            if not df_filtered.empty:
-                hover_text = df_filtered.apply(
-                    lambda row: f"Description: {row.get('Description', 'N/A')}<br>"
-                                f"CUSIP: {row.get('CUSIP', 'N/A')}<br>"
-                                f"Position: {row['Position']}<br>"
-                                f"Years to Maturity: {row['Years to Maturity']:.2f}<br>"
-                                f"{column}: {row[column]:.2f}<br>"
-                                f"Maturity: {maturity}",
-                    axis=1
-                )
+    big_df2 = data_loader.big_df2_dict[key]
+    big_df2 = big_df2.sort_values("Original series")
+    table_data, table_columns = utils.create_summary_table(big_df2, key)
+    annotation_text = ""
+    if key == "All":
+        grouped_df = big_df2.groupby("CUSIP")
+        result = grouped_df.apply(
+            lambda x: np.sum(
+                x["Active Duration Contribution"]
+                * x["portfolioNAVComputedNotional"]
+            )
+            / np.sum(x["portfolioNAVComputedNotional"])
+        )
+        result_abs = result.abs().reset_index(name="AvgActiveDur")
+        big_df2 = big_df2.merge(result_abs, on="CUSIP", how="left")
+        big_df2["AvgActiveDur"] = big_df2["AvgActiveDur"].round(3)
+        size_column = "AvgActiveDur"
+        annotation_text = f'Total ADC : {str(round(big_df2["Active Duration Contribution"].sum(), 4))}'
+    else:
+        size_column = "ADC Abs"
+        annotation_text = f'Total ADC : {str(round(big_df2["Active Duration Contribution_Individual"].sum(), 4))}'
 
-                fig.add_trace(go.Scatter(
-                    x=df_filtered['Years to Maturity'],
-                    y=df_filtered[column],
-                    mode='markers',
-                    marker=dict(
-                        size=df_filtered['sizes'],
-                        color=color_map[position],
-                        symbol=symbol,
-                    ),
-                    name=f"{position} - {maturity}",
-                    legendgroup=position,
-                    showlegend=False,
-                    text=hover_text,
-                    hoverinfo='text',
-                    visible=True
-                ))
+    # Apply normalize_and_scale here, after size_column is defined
+    big_df2 = normalize_and_scale(big_df2, size_column, 5, 18)
 
-    # Add compressed legend items
-    legend_items = [
-        ("overweight", "circle", "mediumseagreen"),
-        ("underweight", "circle", "mediumvioletred"),
-    ] + [(maturity, symbol, "black") for maturity, symbol in symbols_dict.items()]
+    # ... (rest of the function remains the same, including creating traces)
 
-    for name, symbol, color in legend_items:
+    # When creating traces, use the 'sizes' column
+    for position in ["overweight", "underweight"]:
+        df_filtered = big_df2[big_df2["Position"] == position]
         fig.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode='markers',
-            marker=dict(size=10, color=color, symbol=symbol),
-            name=name,
-            legendgroup=name,
-            showlegend=True,
-            visible=True
+            # ...
+            marker=dict(
+                size=df_filtered["sizes"],
+                # ... (other marker properties)
+            ),
+            # ...
         ))
 
-    return fig
+    for maturity in symbols_dict.keys():
+        df_filtered = big_df2[big_df2["Original series"] == maturity]
+        fig.add_trace(go.Scatter(
+            # ...
+            marker=dict(
+                size=df_filtered["sizes"],
+                # ... (other marker properties)
+            ),
+            # ...
+        ))
 
-def update_scatter_plot(figure_obj, data, key, relay_data, column):
-    # ... (previous code remains the same)
-
-    fig = create_compressed_figure(big_df2, column, symbols_dict)
-
-    fig.update_layout(
-        xaxis=dict(title=dict(text="Years to Maturity", font=dict(size=20))),
-        yaxis=dict(title=dict(text=y_title, font=dict(size=20))),
-        height=500,
-        title="Run Date: %s" % date,
-        legend=dict(
-            itemsizing="constant",
-            font=dict(size=16),
-            orientation="v",
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.02,
-            itemclick="toggle",
-            itemdoubleclick="toggle",
-            traceorder="normal"
-        ),
-        hoverlabel_font_color="white",
-        margin=dict(r=150)
-    )
-
-    return [fig, csv_string, "data.csv", table_data, krd]
-
-def register_callbacks(app):
-    @app.callback(
-        Output("scatter-plot", "figure"),
-        Input("scatter-plot", "restyleData"),
-        State("scatter-plot", "figure")
-    )
-    def update_visibility(restyle_data, figure):
-        if restyle_data and restyle_data[0].get('visible') is not None:
-            visibility = restyle_data[0]['visible'][0]
-            trace_index = restyle_data[1][0]
-            clicked_trace = figure['data'][trace_index]
-            
-            if clicked_trace['showlegend']:
-                clicked_name = clicked_trace['name']
-                
-                for i, trace in enumerate(figure['data']):
-                    if not trace['showlegend']:
-                        if clicked_name in ['overweight', 'underweight', 'benchmark']:
-                            if trace['legendgroup'] == clicked_name:
-                                figure['data'][i]['visible'] = visibility
-                        elif clicked_name in trace['name']:
-                            figure['data'][i]['visible'] = visibility
-
-        return figure
-
-    # ... (other callbacks)
-
-# Set up the Dash app
-app = dash.Dash(__name__)
-app.layout = html.Div([
-    dcc.Graph(id='scatter-plot')
-])
-
-register_callbacks(app)
-
-if __name__ == '__main__':
-    app.run_server(debug=True)
+    # ... (rest of the function remains the same)
