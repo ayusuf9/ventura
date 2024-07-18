@@ -1,92 +1,59 @@
-@dashapp.callback(
-    [
-        Output("scatter-plot", "figure"),
-        Output("download-data", "href"),
-        Output("download-data", "download"),
-        Output("summary_table", "data"),
-        Output("table_title", "children"),
-    ],
-    [State("scatter-plot", "figure"), State("download-data", "href")],
-    Input("port_ddn", "value"),
-    Input("scatter-plot", "relayoutData"),
-    Input("y_value_ddn", "value")
-)
-def update_scatter_plot(figure_obj, data, key, relay_data, column):
-    # ... (keep the existing code up to the point where the figure is created)
-
-    graph_trace = px.scatter(
-        big_df2,
-        x="Years to Maturity",
-        y=column,
-        size="sizes",
-        hover_name="Description",
-        hover_data=["CUSIP", "Position"],
-        color="Position",
-        color_discrete_map={
-            "underweight": "mediumvioletred",
-            "overweight": "mediumseagreen",
-            "benchmark": "gray",
-        },
-        title=key,
-        symbol="Original series",
-        symbol_map=symbols_dict,
-    )
+def create_compressed_figure(big_df2, column, symbols_dict):
+    color_map = {
+        'overweight': 'mediumseagreen',
+        'underweight': 'mediumvioletred',
+        'benchmark': 'gray'
+    }
 
     fig = go.Figure()
-    fig.add_traces(list(graph_trace.data))
 
-    # ... (keep other figure updates)
-
-    def simplify_legend(fig):
-        # Get unique positions and original series
-        positions = big_df2['Position'].unique()
-        original_series = big_df2['Original series'].unique()
-
-        # Create a dictionary to store traces for each position and series
-        legend_traces = {}
-
-        # Group traces by position and series
-        for trace in fig.data:
-            position = trace.name.split(' - ')[0] if ' - ' in trace.name else trace.name
-            series = trace.name.split(' - ')[1] if ' - ' in trace.name else ''
+    # Create traces for data points
+    for position in color_map.keys():
+        for maturity, symbol in symbols_dict.items():
+            df_filtered = big_df2[(big_df2['Position'] == position) & (big_df2['Original series'] == maturity)]
             
-            if position not in legend_traces:
-                legend_traces[position] = {}
-            
-            if series not in legend_traces[position]:
-                legend_traces[position][series] = trace
-            
-            trace.showlegend = False
+            if not df_filtered.empty:
+                # Create hover text
+                hover_text = df_filtered.apply(
+                    lambda row: f"Description: {row.get('Description', 'N/A')}<br>"
+                                f"CUSIP: {row.get('CUSIP', 'N/A')}<br>"
+                                f"Position: {row['Position']}<br>"
+                                f"Years to Maturity: {row['Years to Maturity']:.2f}<br>"
+                                f"{column}: {row[column]:.2f}<br>"
+                                f"Maturity: {maturity}",
+                    axis=1
+                )
 
-        # Add grouped traces to the figure
-        for position, series_traces in legend_traces.items():
-            for series, trace in series_traces.items():
-                new_trace = trace.copy()
-                new_trace.showlegend = True
-                new_trace.name = f"{position} - {series}" if series else position
-                new_trace.legendgroup = position
-                fig.add_trace(new_trace)
+                fig.add_trace(go.Scatter(
+                    x=df_filtered['Years to Maturity'],
+                    y=df_filtered[column],
+                    mode='markers',
+                    marker=dict(
+                        size=df_filtered['sizes'],
+                        color=color_map[position],
+                        symbol=symbol,
+                    ),
+                    name=f"{position} - {maturity}",
+                    legendgroup=f"{position} + {maturity}",
+                    showlegend=False,
+                    text=hover_text,
+                    hoverinfo='text'
+                ))
 
-        return fig
+    # Add compressed legend items
+    legend_items = [
+        ("overweight", "circle", "mediumseagreen"),
+        ("underweight", "circle", "mediumvioletred"),
+    ] + [(maturity, symbol, "black") for maturity, symbol in symbols_dict.items()]
 
-    # Apply the new legend simplification
-    fig = simplify_legend(fig)
+    for name, symbol, color in legend_items:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='markers',
+            marker=dict(size=10, color=color, symbol=symbol),
+            name=name,
+            legendgroup=name,
+            showlegend=True
+        ))
 
-    fig.update_layout(
-        legend=dict(
-            itemsizing="constant",
-            font=dict(size=16),
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            itemclick="toggleothers",
-            itemdoubleclick="toggle"
-        ),
-        hoverlabel_font_color="white",
-    )
-
-    # ... (keep the rest of the function as is)
-
-    return [fig, csv_string, "data.csv", table_data, krd]
+    return fig
