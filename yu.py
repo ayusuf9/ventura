@@ -1,74 +1,61 @@
-def create_compressed_figure(big_df2, column, symbols_dict, size_column):
-    color_map = {
-        'overweight': 'mediumseagreen',
-        'underweight': 'mediumvioletred',
-        'benchmark': 'gray'
-    }
+def update_scatter_plot(figure_obj, data, key, relay_data, column):
+    # ... (keep the beginning of the function as is)
+
+    def normalize_and_scale(df, column, min_value, max_value):
+        if column in df.columns:
+            df['normalized'] = (df[column] - df[column].min()) / (df[column].max() - df[column].min())
+            df['sizes'] = df['normalized'] * (max_value - min_value) + min_value
+        else:
+            df['sizes'] = (max_value + min_value) / 2  # Default size if column doesn't exist
+        return df
 
     fig = go.Figure()
-
-    # Normalize and scale sizes
-    min_size, max_size = 5, 18
-    if size_column in big_df2.columns:
-        big_df2['normalized'] = (big_df2[size_column] - big_df2[size_column].min()) / (big_df2[size_column].max() - big_df2[size_column].min())
-        big_df2['sizes'] = big_df2['normalized'] * (max_size - min_size) + min_size
+    big_df2 = data_loader.big_df2_dict[key]
+    big_df2 = big_df2.sort_values("Original series")
+    table_data, table_columns = utils.create_summary_table(big_df2, key)
+    
+    if key == "All":
+        grouped_df = big_df2.groupby("CUSIP")
+        result = grouped_df.apply(
+            lambda x: np.sum(
+                x["Active Duration Contribution"]
+                * x["portfolioNAVComputedNotional"]
+            )
+            / np.sum(x["portfolioNAVComputedNotional"])
+        )
+        result_abs = result.abs().reset_index(name="AvgActiveDur")
+        big_df2 = big_df2.merge(result_abs, on="CUSIP", how="left")
+        big_df2["AvgActiveDur"] = big_df2["AvgActiveDur"].round(3)
+        size_column = "AvgActiveDur"
     else:
-        print(f"Warning: {size_column} not found in DataFrame. Using default size.")
-        big_df2['sizes'] = 10  # Default size if the column is not found
+        size_column = "ADC Abs"
 
-    # Create traces for each combination of Position and Original series
-    for position in color_map.keys():
-        for maturity in symbols_dict.keys():
-            df_filtered = big_df2[(big_df2['Position'] == position) & (big_df2['Original series'] == maturity)]
-            
-            if not df_filtered.empty:
-                hover_text = df_filtered.apply(
-                    lambda row: f"Description: {row['Description']}<br>"
-                                f"CUSIP: {row['CUSIP']}<br>"
-                                f"Position: {row['Position']}<br>"
-                                f"Years to Maturity: {row['Years to Maturity']}<br>"
-                                f"{column}: {row[column]}<br>"
-                                f"Maturity: {maturity}<br>"
-                                f"{size_column}: {row.get(size_column, 'N/A')}",
-                    axis=1
-                )
-                
-                fig.add_trace(go.Scatter(
-                    x=df_filtered['Years to Maturity'],
-                    y=df_filtered[column],
-                    mode='markers',
-                    marker=dict(
-                        size=df_filtered['sizes'],
-                        color=color_map[position],
-                        symbol=symbols_dict[maturity],
-                    ),
-                    name=f"{position} - {maturity}",
-                    legendgroup=position,
-                    showlegend=False,
-                    text=hover_text,
-                    hoverinfo='text'
-                ))
+    # Apply normalize_and_scale here, after size_column is defined
+    big_df2 = normalize_and_scale(big_df2, size_column, 5, 18)
 
-    # Add legend items for positions
-    for position, color in color_map.items():
+    # ... (rest of the function, including creating traces)
+
+    # When creating traces, use the 'sizes' column
+    for position in ["overweight", "underweight"]:
+        df_filtered = big_df2[big_df2["Position"] == position]
         fig.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode='markers',
-            marker=dict(size=10, color=color, symbol='circle'),
-            name=position.capitalize(),
-            legendgroup=position,
-            showlegend=True
+            # ...
+            marker=dict(
+                size=df_filtered["sizes"],
+                # ... (other marker properties)
+            ),
+            # ...
         ))
 
-    # Add legend items for maturities
-    for maturity, symbol in symbols_dict.items():
+    for maturity in symbols_dict.keys():
+        df_filtered = big_df2[big_df2["Original series"] == maturity]
         fig.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode='markers',
-            marker=dict(size=10, color='black', symbol=symbol),
-            name=maturity,
-            legendgroup=maturity,
-            showlegend=True
+            # ...
+            marker=dict(
+                size=df_filtered["sizes"],
+                # ... (other marker properties)
+            ),
+            # ...
         ))
 
-    return fig
+    # ... (rest of the function remains the same)
