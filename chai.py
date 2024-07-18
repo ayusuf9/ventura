@@ -10,8 +10,6 @@ from support_functions import utils
 from controls import QH_APPDATA_BUCKET_NAME, S3_RESOURCE
 from dash import ctx
 
-global data_loader
-
 prefix = "appdata/users/dlqs/riskvalspline/output_"
 
 def create_compressed_figure(big_df2, column, symbols_dict):
@@ -39,7 +37,7 @@ def create_compressed_figure(big_df2, column, symbols_dict):
                     ),
                     name=f"{position} - {maturity}",
                     legendgroup=position,
-                    showlegend=False,
+                    showlegend=True,
                     hovertemplate=(
                         "Description: %{customdata[0]}<br>"
                         "CUSIP: %{customdata[1]}<br>"
@@ -85,16 +83,15 @@ def register_callbacks(dashapp):
         State("date_ddn", "value"),
     )
     def load_dates(url, back_clicks, next_clicks, date_options, date_value):
-        if len(date_options) > 0 and date_value is not None:
+        if date_options and date_value is not None:
             length = len(date_options)
             index = date_options.index(date_value)
             factor = 0
-            if "back_btn" == ctx.triggered_id:
+            if "back_btn" == dash.callback_context.triggered[0]['prop_id'].split('.')[0]:
                 factor = 1
-            elif "next_btn" == ctx.triggered_id:
+            elif "next_btn" == dash.callback_context.triggered[0]['prop_id'].split('.')[0]:
                 factor = -1
-            index += factor
-            index %= length
+            index = (index + factor) % length
             return date_options, date_options[index]
         
         my_bucket = S3_RESOURCE.Bucket(QH_APPDATA_BUCKET_NAME)
@@ -126,9 +123,9 @@ def register_callbacks(dashapp):
         
         if current_port not in data_loader.ddn_options_list:
             current_port = "ALL"
-            ports_count_msg = "Ports Count: " + str(len(data_loader.ddn_options_list))
         
-        return [data_loader.ddn_options, current_port, ports_count_msg]
+        ports_count_msg = "Ports Count: " + str(len(data_loader.ddn_options_list))
+        return data_loader.ddn_options, current_port, ports_count_msg
 
     @dashapp.callback(
         [
@@ -138,10 +135,13 @@ def register_callbacks(dashapp):
             Output("summary_table", "data"),
             Output("table_title", "children"),
         ],
-        [State("scatter-plot", "figure"), State("download-data", "href")],
-        Input("port_ddn", "value"),
-        Input("scatter-plot", "relayoutData"),
-        Input("y_value_ddn", "value")
+        [
+            State("scatter-plot", "figure"), 
+            State("download-data", "href"),
+            Input("port_ddn", "value"),
+            Input("scatter-plot", "relayoutData"),
+            Input("y_value_ddn", "value")
+        ]
     )
     def update_scatter_plot(figure_obj, data, key, relay_data, column):
         trigger_id = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
@@ -171,7 +171,7 @@ def register_callbacks(dashapp):
                 if key == "ALL":
                     table_data = None
 
-                return [figure_obj, data, "data.csv", table_data, krd]
+                return figure_obj, data, "data.csv", table_data, krd
             else:
                 new_df = big_df2.copy()
                 if "xaxis.range[0]" in relay_data.keys():
@@ -191,7 +191,7 @@ def register_callbacks(dashapp):
                 if key == "ALL":
                     table_data = None
 
-                return [figure_obj, data, "data.csv", table_data, krd]
+                return figure_obj, data, "data.csv", table_data, krd
         else:
             big_df2 = data_loader.big_df2_dict[key]
             big_df2 = big_df2.sort_values("Original series")
@@ -280,9 +280,8 @@ def register_callbacks(dashapp):
                 hoverlabel_font_color="white",
             )
 
-            return [fig, csv_string, "data.csv", table_data, krd]
+            return fig, csv_string, "data.csv", table_data, krd
 
-# This is typically how you would set up your Dash app
 app = dash.Dash(__name__)
 register_callbacks(app)
 
