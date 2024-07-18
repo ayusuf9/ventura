@@ -269,3 +269,4 @@ def register_callbacks(dashapp):
             csv_string = "data:text/csv;charset=utf-8," + urllib.parse.quote(csv_string)
 
             return [fig, csv_string, "data.csv", table_data, krd]
+
