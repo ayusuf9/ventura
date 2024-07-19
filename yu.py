@@ -36,7 +36,6 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
             table_data, table_columns = utils.create_summary_table(big_df2, key)
             if key == "All":
                 table_data = None
-
             return [figure_obj, data, "data.csv", table_data, krd]
 
         else:
@@ -57,7 +56,6 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
             table_data, table_columns = utils.create_summary_table(new_df, key)
             if key == "All":
                 table_data = None
-
             return [figure_obj, data, "data.csv", table_data, krd]
 
     else:
@@ -85,42 +83,24 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
             annotation_text = f'Total ADC : {str(round(big_df2["Active Duration Contribution_Individual"].sum(), 4))}'
 
         df_rename_values = {
-            2.0: "2Y",
-            3.0: "3Y",
-            5.0: "5Y",
-            7.0: "7Y",
-            10.0: "10Y",
-            20.0: "20Y",
-            30.0: "30Y",
+            2.0: "2Y", 3.0: "3Y", 5.0: "5Y", 7.0: "7Y",
+            10.0: "10Y", 20.0: "20Y", 30.0: "30Y",
         }
         symbols_dict = {
-            "2Y": "circle",
-            "3Y": "square",
-            "5Y": "diamond",
-            "7Y": "cross",
-            "10Y": "x",
-            "20Y": "star",
-            "30Y": "bowtie",
+            "2Y": "circle", "3Y": "square", "5Y": "diamond",
+            "7Y": "cross", "10Y": "x", "20Y": "star", "30Y": "bowtie",
         }
         big_df2["Original series"] = big_df2["Original series"].apply(
-            lambda x: df_rename_values[x] if x in df_rename_values.keys() else x
+            lambda x: df_rename_values.get(x, x)
         )
 
-        max_size = 15
-        min_size = 2
+        max_size, min_size = 15, 2
         big_df2['normalized_size'] = (big_df2[size] - big_df2[size].min()) / (big_df2[size].max() - big_df2[size].min())
         big_df2['Size'] = big_df2['normalized_size'] * (max_size - min_size) + min_size
 
-        bench = []
-        for benchmark in data_loader.ddn_options_list:
-            if benchmark == "All":
-                continue
-            bench.append(benchmark.split("/")[1])
-        print(bench)
-        if bench is not None:
-            big_df2.loc[np.isin(big_df2["indportname"], bench), "Position"] = (
-                "benchmark"
-            )
+        bench = [benchmark.split("/")[1] for benchmark in data_loader.ddn_options_list if benchmark != "All"]
+        if bench:
+            big_df2.loc[np.isin(big_df2["indportname"], bench), "Position"] = "benchmark"
 
         graph_trace = px.scatter(
             big_df2,
@@ -128,54 +108,39 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
             y=column,
             size="Size",
             hover_name="Description",
-            hover_data=["CUSIP", "Position"],
+            hover_data=["CUSIP", "Position", "Original series"],
             color="Position",
             color_discrete_map={
                 "underweight": "mediumvioletred",
                 "overweight": "mediumseagreen",
                 "benchmark": "gray",
             },
-            title=key,
             symbol="Original series",
             symbol_map=symbols_dict,
+            title=key,
         )
 
         fig.add_traces(list(graph_trace.data))
 
-        # Add invisible traces for legend control
-        positions = ["overweight", "underweight", "benchmark"]
-        colors = {"overweight": "mediumseagreen", "underweight": "mediumvioletred", "benchmark": "gray"}
+        # Modify traces for correct legend display
+        for trace in fig.data:
+            trace.showlegend = False
 
-        for position in positions:
+        # Add custom legend items
+        colors = {"underweight": "mediumvioletred", "overweight": "mediumseagreen", "benchmark": "gray"}
+        for position in ["underweight", "overweight", "benchmark"]:
             fig.add_trace(go.Scatter(
-                x=[None], 
-                y=[None],
-                mode="markers", 
+                x=[None], y=[None], mode="markers",
+                marker=dict(size=10, color=colors[position]),
                 name=position.capitalize(),
                 legendgroup=position,
-                marker=dict(size=10, symbol='circle', color=colors[position]),
                 showlegend=True
-            ))
-
-        for maturity in symbols_dict.keys():
-            fig.add_trace(go.Scatter(
-                x=[None], 
-                y=[None],
-                mode="markers", 
-                name=maturity,
-                legendgroup=maturity,
-                marker=dict(size=10, symbol=symbols_dict[maturity], color='black'),
-                showlegend=True,
-                hoverinfo='none'
             ))
 
         if column == "Fed Hold %":
             fig.update_yaxes(range=[-5, 75])
 
-        if column == "CMT RVS":
-            y_title = "Basis Points From Fair Value"
-        else:
-            y_title = str(column)
+        y_title = "Basis Points From Fair Value" if column == "CMT RVS" else str(column)
         fig.update_layout(
             xaxis=dict(title=dict(text="Years to Maturity", font=dict(size=20))),
             yaxis=dict(title=dict(text=y_title, font=dict(size=20))),
@@ -191,7 +156,7 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
                 y=1,
                 groupclick="toggleitem",
                 itemclick="toggleothers",
-                itemdoubleclick="toggle" 
+                itemdoubleclick="toggle"
             ),
             hoverlabel_font_color="white",
         )
