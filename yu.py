@@ -102,40 +102,38 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
         if bench:
             big_df2.loc[np.isin(big_df2["indportname"], bench), "Position"] = "benchmark"
 
-        graph_trace = px.scatter(
-            big_df2,
-            x="Years to Maturity",
-            y=column,
-            size="Size",
-            hover_name="Description",
-            hover_data=["CUSIP", "Position", "Original series"],
-            color="Position",
-            color_discrete_map={
-                "underweight": "mediumvioletred",
-                "overweight": "mediumseagreen",
-                "benchmark": "gray",
-            },
-            symbol="Original series",
-            symbol_map=symbols_dict,
-            title=key,
-        )
-
-        fig.add_traces(list(graph_trace.data))
-
-        # Modify traces for correct legend display
-        for trace in fig.data:
-            trace.showlegend = False
-
-        # Add custom legend items
         colors = {"underweight": "mediumvioletred", "overweight": "mediumseagreen", "benchmark": "gray"}
+
         for position in ["underweight", "overweight", "benchmark"]:
-            fig.add_trace(go.Scatter(
-                x=[None], y=[None], mode="markers",
-                marker=dict(size=10, color=colors[position]),
-                name=position.capitalize(),
-                legendgroup=position,
-                showlegend=True
-            ))
+            position_data = big_df2[big_df2["Position"] == position]
+            for series in symbols_dict.keys():
+                series_data = position_data[position_data["Original series"] == series]
+                if not series_data.empty:
+                    fig.add_trace(go.Scatter(
+                        x=series_data["Years to Maturity"],
+                        y=series_data[column],
+                        mode="markers",
+                        marker=dict(
+                            size=series_data["Size"],
+                            symbol=symbols_dict[series],
+                            color=colors[position],
+                            line=dict(width=1, color="black")
+                        ),
+                        name=f"{position.capitalize()} - {series}",
+                        legendgroup=position,
+                        legendgrouptitle_text=position.capitalize(),
+                        showlegend=True,
+                        hovertemplate=(
+                            "Description: %{customdata[0]}<br>"
+                            "CUSIP: %{customdata[1]}<br>"
+                            "Position: %{customdata[2]}<br>"
+                            "Original series: %{customdata[3]}<br>"
+                            "Years to Maturity: %{x}<br>"
+                            f"{column}: " + "%{y}<br>"
+                            "<extra></extra>"
+                        ),
+                        customdata=series_data[["Description", "CUSIP", "Position", "Original series"]]
+                    ))
 
         if column == "Fed Hold %":
             fig.update_yaxes(range=[-5, 75])
@@ -155,8 +153,9 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
                 x=1.02,
                 y=1,
                 groupclick="toggleitem",
-                itemclick="toggleothers",
-                itemdoubleclick="toggle"
+                itemclick="toggle",
+                trace_groupgap=5,
+                tracegroupgap=15
             ),
             hoverlabel_font_color="white",
         )
