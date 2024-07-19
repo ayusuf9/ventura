@@ -104,36 +104,52 @@ def update_scatter_plot(figure_obj, data, key, relay_data, column):
 
         colors = {"underweight": "mediumvioletred", "overweight": "mediumseagreen", "benchmark": "gray"}
 
+        graph_trace = px.scatter(
+            big_df2,
+            x="Years to Maturity",
+            y=column,
+            size="Size",
+            hover_name="Description",
+            hover_data=["CUSIP", "Position", "Original series"],
+            color="Position",
+            color_discrete_map=colors,
+            symbol="Original series",
+            symbol_map=symbols_dict,
+            title=key,
+        )
+
+        fig = go.Figure()
+
+        # Add traces from graph_trace to fig
+        for trace in graph_trace.data:
+            trace.showlegend = False  # Hide original legend items
+            fig.add_trace(trace)
+
+        # Add custom legend items for positions (colors)
         for position in ["underweight", "overweight", "benchmark"]:
-            position_data = big_df2[big_df2["Position"] == position]
-            for series in symbols_dict.keys():
-                series_data = position_data[position_data["Original series"] == series]
-                if not series_data.empty:
-                    fig.add_trace(go.Scatter(
-                        x=series_data["Years to Maturity"],
-                        y=series_data[column],
-                        mode="markers",
-                        marker=dict(
-                            size=series_data["Size"],
-                            symbol=symbols_dict[series],
-                            color=colors[position],
-                            line=dict(width=1, color="black")
-                        ),
-                        name=f"{position.capitalize()} - {series}",
-                        legendgroup=position,
-                        legendgrouptitle_text=position.capitalize(),
-                        showlegend=True,
-                        hovertemplate=(
-                            "Description: %{customdata[0]}<br>"
-                            "CUSIP: %{customdata[1]}<br>"
-                            "Position: %{customdata[2]}<br>"
-                            "Original series: %{customdata[3]}<br>"
-                            "Years to Maturity: %{x}<br>"
-                            f"{column}: " + "%{y}<br>"
-                            "<extra></extra>"
-                        ),
-                        customdata=series_data[["Description", "CUSIP", "Position", "Original series"]]
-                    ))
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode="markers",
+                marker=dict(size=10, color=colors[position]),
+                name=position.capitalize(),
+                legendgroup="positions",
+                legendgrouptitle_text="Positions",
+                showlegend=True,
+                hoverinfo='none'
+            ))
+
+        # Add custom legend items for maturity periods (shapes)
+        for series, symbol in symbols_dict.items():
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode="markers",
+                marker=dict(size=10, symbol=symbol, color="black"),
+                name=series,
+                legendgroup="maturities",
+                legendgrouptitle_text="Maturities",
+                showlegend=True,
+                hoverinfo='none'
+            ))
 
         if column == "Fed Hold %":
             fig.update_yaxes(range=[-5, 75])
